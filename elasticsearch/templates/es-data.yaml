@@ -1,0 +1,133 @@
+apiVersion: {{ if .Values.data.stateful.enabled }}apps/v1beta1{{ else }}extensions/v1beta1{{ end }}
+kind: {{ if .Values.data.stateful.enabled }}StatefulSet{{ else }}Deployment{{ end }}
+metadata:
+  name: {{ template "es.fullname" . }}-data
+  labels:
+    app: {{ template "es.fullname" . }}
+    component: {{ template "es.fullname" . }}
+    role: data
+spec:
+  {{- if .Values.data.stateful.enabled }}
+  serviceName: {{ template "es.fullname" . }}-data
+  {{- end }}
+  replicas: {{ .Values.data.replicas }}
+  template:
+    metadata:
+      labels:
+        component: {{ template "es.fullname" . }}
+        role: data
+    spec:
+      {{- if .Values.data.tolerations }}
+      tolerations:
+{{ toYaml .Values.data.tolerations | indent 8 }}
+      {{- end }}
+      affinity:
+      {{- if eq .Values.data.podAntiAffinity "required" }}
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: "kubernetes.io/hostname"
+              labelSelector:
+                matchLabels:
+                  component: {{ template "es.fullname" . }}
+                  role: data
+      {{- else if eq .Values.data.podAntiAffinity "preferred" }}
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            podAffinityTerm:
+              topologyKey: "kubernetes.io/hostname"
+              labelSelector:
+                matchLabels:
+                  component: {{ template "es.fullname" . }}
+                  role: data
+      {{- end }}
+      {{- if .Values.data.customAffinity }}
+{{ toYaml .Values.data.customAffinity | indent 8 }}
+      {{- end }}
+      initContainers:
+      - name: init-sysctl
+        image: "{{ .Values.image.init.repository }}:{{ .Values.image.init.tag }}"
+        imagePullPolicy: {{ .Values.image.init.pullPolicy }}
+        command: ["sysctl", "-w", "vm.max_map_count=262144"]
+        securityContext:
+          privileged: true
+      containers:
+      - name: es-data
+        securityContext:
+          privileged: {{ .Values.data.stateful.enabled }}
+          capabilities:
+            add:
+              {{- if .Values.data.stateful.enabled }}
+              - IPC_LOCK
+              {{- else }}
+              - IPC_LOCK
+              - SYS_RESOURCE
+              {{- end }}
+        image: "{{ .Values.image.es.repository }}:{{ .Values.image.es.tag }}"
+        imagePullPolicy: {{ .Values.image.es.pullPolicy }}
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: PROCESSORS
+          valueFrom:
+            resourceFieldRef:
+              resource: limits.cpu
+        - name: DISCOVERY_SERVICE
+          value: {{ template "es.fullname" . }}-discovery
+        - name: ES_JAVA_OPTS
+          value: "-Xms{{ .Values.data.heapMemory }} -Xmx{{ .Values.data.heapMemory }}"
+        {{- range $key, $value :=  .Values.common.env }}
+        - name: {{ $key | upper | replace "-" "_" }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- range $key, $value :=  .Values.data.env }}
+        - name: {{ $key | upper | replace "-" "_" }}
+          value: {{ $value | quote }}
+        {{- end }}
+        resources:
+{{ toYaml .Values.data.resources | indent 10 }}
+        ports:
+        - containerPort: 9200
+          name: http
+        - containerPort: 9300
+          name: transport
+          protocol: TCP
+        livenessProbe:
+          tcpSocket:
+            port: 9300
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /_cluster/health
+            port: 9200
+          initialDelaySeconds: 60
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: storage
+          mountPath: /data
+      {{- if not .Values.data.stateful.enabled }}
+      volumes:
+        - emptyDir:
+            medium: ""
+          name: "storage"
+      {{- end }}
+  {{- if .Values.data.stateful.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: storage
+      annotations:
+        volume.beta.kubernetes.io/storage-class: {{ template "es.fullname" . }}
+    spec:
+      storageClassName: {{ template "es.fullname" . }}
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: {{ .Values.data.stateful.size }}
+  {{- end }}

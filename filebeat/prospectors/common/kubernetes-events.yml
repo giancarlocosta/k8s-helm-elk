@@ -1,0 +1,30 @@
+{{- if .Values.filebeatVersionGte6 }}
+- type: log
+  enabled: true
+{{- else }}
+filebeat.prospectors:
+- input_type: log
+{{- end }}
+  # This prospector will scrape the logs of a pod (should be in "kube-system"
+  # or "monitor" namespace) that is watching Kubernetes events via the
+  # Kubernetes API (/api/watch/events).
+  paths:
+    - '/var/log/containers/kubernetes-event-logger*.log'
+  symlinks: true
+  json.message_key: log
+  json.keys_under_root: true
+  json.add_error_key: true
+  fields_under_root: true
+  fields:
+    index_prefix: "{{ .Values.vpcId }}-kubernetes-event"
+    vpc_name: "{{ .Values.vpcId }}"
+    info:
+      origin: kubernetes
+      source: docker
+      formats:
+        - kubernetes-event
+        - kubernetes-event-raw
+        - kubernetes-event-logger
+      transport: filebeat
+    kube:
+      node: ${KUBERNETES_NODE_NAME}

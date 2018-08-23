@@ -1,0 +1,83 @@
+image:
+  es:
+    repository: quay.io/pires/docker-elasticsearch-kubernetes
+    tag: 6.3.1
+    pullPolicy: Always
+  init:
+    repository: busybox
+    tag: latest
+    pullPolicy: IfNotPresent
+  curator:
+    repository: bobrik/curator
+    tag: latest
+    pullPolicy: IfNotPresent
+
+common:
+  env:
+    CLUSTER_NAME: "prod-elk"
+
+service:
+  httpPort: 80
+  transportPort: 9300
+
+ingress:
+  enabled: false
+
+# Elasticsearch curator cleans up old indices to keep disk usage in check
+curator:
+  enabled: true
+  # Run the curator every 10 minutes
+  schedule: "*/10 * * * *"
+  # Delete any indices older than 3 days
+  age:
+    timestring: "%Y.%m.%d"
+    unit: "days"
+    unit_count: 1
+
+data:
+
+  stateful:
+    enabled: false
+
+  replicas: 1
+
+  resources:
+    requests:
+      cpu: 1
+      memory: 2Gi
+
+  # The amount of RAM allocated to the JVM heap. This should be set to less than
+  # or equal to data.resources.requests.memory, or you may see
+  # OutOfMemoryErrors on startup.
+  heapMemory: 2g
+
+  env:
+    NODE_DATA: "true"
+    NODE_MASTER: "false"
+    NODE_INGEST: "false"
+    HTTP_ENABLE: "true"
+    NETWORK_HOST: "0.0.0.0"
+
+master:
+
+  stateful:
+    enabled: false
+
+  # Master replica count should be (#clients / 2) + 1, and generally at least 3.
+  replicas: 1
+
+  heapMemory: 1g
+
+  env:
+    NODE_DATA: "false"
+    NODE_MASTER: "true"
+    NODE_INGEST: "false"
+    HTTP_ENABLE: "false"
+    # The default value for this environment variable is 2, meaning a cluster
+    # will need a minimum of 2 master nodes to operate. If you have 3 masters
+    # and one dies, the cluster still works.
+    # REMEMBER TO UPDATE THIS WHEN/IF YOU SCALE MASTERS!!
+    NUMBER_OF_MASTERS: "1"
+
+client:
+  enabled: false

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-controller-nginx-conf-elk-internal
+data:
+  hsts: "true"
+  hsts-include-subdomains: "true"
+  hsts-max-age: "31536000"
+  proxy-read-timeout: "900"
+  proxy-send-timeout: "900"
+  proxy-body-size: "512m"
+  body-size: "512m"

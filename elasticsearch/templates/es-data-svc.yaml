@@ -1,0 +1,22 @@
+{{- if .Values.data.stateful.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "es.fullname" . }}-data
+  labels:
+    app: {{ template "es.fullname" . }}
+    component: {{ template "es.fullname" . }}
+    role: data
+spec:
+  ports:
+  - name: http
+    port: 9200
+    targetPort: 9200
+    protocol: TCP
+  - port: 9300
+    name: transport
+  clusterIP: None
+  selector:
+    component: {{ template "es.fullname" . }}
+    role: data
+{{- end }}

@@ -1,0 +1,38 @@
+{{- if .Values.filebeatVersionGte6 }}
+- type: log
+  enabled: true
+{{- else }}
+filebeat.prospectors:
+- input_type: log
+{{- end }}
+  paths:
+    - '/var/log/containers/*heapster-eventer*.log'
+  # When using stdout as the Heapster-Eventer sink and parsing those logs, Eventer
+  # will output it's own logs as well as the Kubernetes event logs it's collecting.
+  # The Kubernetes events in the Eventer's logs are indented 3-4 spaces.
+  # The only logs we care about are any Warnings or Errors that the Eventer itself
+  # is throwing , and the actual Kubernetes event logs that it's collecting.
+  # Any Eventer info, debug, etc statements should be excluded. Therefore, see
+  # include_lines below
+  #
+  # I0302 20:40:00.000518       1 manager.go:100] Exporting 24 events
+  # I0302 20:40:00.000840       1 log_sink.go:46] EventBatch     Timestamp: 2018-03-02 20:40:00.000382267 +0000 UTC
+  #    2018-03-02 20:39:39 +0000 UTC (cnt:1): Created pod: transactions-7df7bc8475-xflls
+  include_lines: ['^F', '^E', '^W', '^\s']
+  symlinks: true
+  json.message_key: log
+  json.keys_under_root: true
+  json.add_error_key: true
+  fields_under_root: true
+  fields:
+    index_prefix: "{{ .Values.vpcId }}-kubernetes-event"
+    vpc_name: "{{ .Values.vpcId }}"
+    info:
+      origin: kubernetes
+      source: docker
+      formats:
+        - kubernetes-event
+        - heapster-eventer
+      transport: filebeat
+    kube:
+      node: ${KUBERNETES_NODE_NAME}

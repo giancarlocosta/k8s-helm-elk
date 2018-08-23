@@ -1,0 +1,167 @@
+replicaCount: 3
+
+image:
+  repository: docker.elastic.co/logstash/logstash
+  tag: 6.3.2
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  annotations: {}
+    ## AWS example for use with LoadBalancer service type.
+    # external-dns.alpha.kubernetes.io/hostname: logstash.cluster.local
+    # service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    # service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+
+ingress:
+  enabled: false
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  path: /
+  hosts:
+    - logstash.cluster.local
+  tls: []
+  #  - secretName: logstash-tls
+  #    hosts:
+  #      - logstash.cluster.local
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #  cpu: 100m
+  #  memory: 128Mi
+  # requests:
+  #  cpu: 100m
+  #  memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+  # podAntiAffinity:
+  #   requiredDuringSchedulingIgnoredDuringExecution:
+  #     - topologyKey: "kubernetes.io/hostname"
+  #       labelSelector:
+  #         matchLabels:
+  #           release: logstash
+
+extraAffinity: {}
+
+podAnnotations: {}
+  # iam.amazonaws.com/role: "logstash-role"
+  # prometheus.io/scrape: "true"
+  # prometheus.io/path: "/metrics"
+  # prometheus.io/port: "9198"
+
+persistence:
+  enabled: false
+  ## logstash data Persistent Volume Storage Class
+  ## If defined, storageClassName: <storageClass>
+  ## If set to "-", storageClassName: "", which disables dynamic provisioning
+  ## If undefined (the default) or set to null, no storageClassName spec is
+  ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
+  ##   GKE, AWS & OpenStack)
+  ##
+  # storageClass: "-"
+  accessMode: ReadWriteOnce
+  size: 2Gi
+
+exporter:
+  logstash:
+    image:
+      repository: bonniernews/logstash_exporter
+      tag: v0.1.2
+      pullPolicy: IfNotPresent
+    env: {}
+
+elasticsearch:
+  host: elasticsearch
+  port: 9200
+
+config:
+  jvm.options: |-
+    # Check with  http://0.0.0.0:9600/_node/jvm?pretty
+    -Xms1g
+    -Xmx1g
+
+  # https://www.elastic.co/guide/en/logstash/current/logstash-settings-file.html
+  # https://www.elastic.co/guide/en/logstash/current/performance-troubleshooting.html
+  # https://www.elastic.co/guide/en/logstash/current/node-stats-api.html#process-stats
+  logstash.yml: |-
+    http.host: "0.0.0.0"
+    path.config: /usr/share/logstash/pipeline
+    path.data: /usr/share/logstash/data
+
+    ## Persistent Queue
+    ## ref: https://www.elastic.co/guide/en/logstash/current/persistent-queues.html
+    ## WARNING!!! this seems to slow down event processing by x4. So careful tuning is needed
+    # queue.type: persisted
+    # Max bytes before queue blocks inputs while draining. Disk capacity must be
+    # greater than the value of `queue.max_bytes`
+    queue.max_bytes: 1gb
+    # Number of events between Logstash writing state of queue to disk. If 1, the state
+    # will be written to disk at every event (safe but SLOW).
+    queue.checkpoint.writes: 1000
+    queue.drain: "true"
+
+    # config.debug: true
+    # log.level: debug
+
+  # Untested
+  logstash.conf: |-
+    input {
+      # udp {
+      #   port => 1514
+      #   type => syslog
+      # }
+      # tcp {
+      #   port => 1514
+      #   type => syslog
+      # }
+      beats {
+        port => 5044
+      }
+      # http {
+      #   port => 8080
+      # }
+      # kafka {
+      #   ## ref: https://www.elastic.co/guide/en/logstash/current/plugins-inputs-kafka.html
+      #   bootstrap_servers => "kafka-input:9092"
+      #   codec => json { charset => "UTF-8" }
+      #   consumer_threads => 1
+      #   topics => ["source"]
+      #   type => "example"
+      # }
+    }
+    output {
+      # stdout { codec => rubydebug }
+      elasticsearch {
+        hosts => ["${ELASTICSEARCH_HOST}:${ELASTICSEARCH_PORT}"]
+        manage_template => false
+        index => "%{[@metadata][beat]}-%{+YYYY.MM.dd}"
+        document_type => "%{[@metadata][type]}"
+      }
+      # kafka {
+      #   ## ref: https://www.elastic.co/guide/en/logstash/current/plugins-outputs-kafka.html
+      #   bootstrap_servers => "kafka-output:9092"
+      #   codec => json { charset => "UTF-8" }
+      #   compression_type => "lz4"
+      #   topic_id => "destination"
+      # }
+    }
+
+# Untested:
+
+# input {
+#   s3 {
+#     access_key_id => "???"
+#     secret_access_key => "???"
+#     region => "us-west-2"
+#     bucket => "prod-elb-logs"
+#   }
+# }

@@ -1,0 +1,135 @@
+replicaCount: 3
+
+image:
+  repository: jertel/elastalert-docker
+  tag: 0.1.33
+  pullPolicy: IfNotPresent
+resources: {}
+
+elasticsearch:
+  # elasticsearch endpoint e.g. (svc.namespace||svc)
+  host: "elasticsearch"
+  port: 9200
+  useSsl: "False"
+
+# number of helm release revisions to retain
+revisionHistoryLimit: 5
+# Default internal between alert checks against the elasticsearch datasource, in minutes
+runIntervalMins: 1
+# Default rule buffer duration, in minutes
+bufferTimeMins: 15
+
+# rule configurations e.g. (http://elastalert.readthedocs.io/en/latest/)
+rules:
+
+  # Create an alert if any 5XX error occurs on the ELB
+  http_error_rule: |-
+    name: HTTP Error
+    index: monitor-*
+    type: any
+    filter:
+    - query:
+        query_string:
+          query: 'elb.elb_status_code: [500 TO 599]'
+    alert_subject: "HTTP Error (<https://kibana.prod-elk.yournetwork.net/app/kibana#/discover|View In Kibana>)"
+    alert_text: "An HTTP error [{0}] has occurred at [{1}]. In most cases this is not an urgent condition, but if it happens regularly it should be investigated."
+    alert_text_args: ["elb.elb_status_code", "elb.request_url"]
+    alert:
+      - slack
+    slack_webhook_url: SLACK_HOOK_URL_HERE
+    slack_username_override: Yellow Alert
+    slack_emoji_override: ":warning:"
+    slack_msg_color: warning
+
+  # Create an alert if a pod restarts
+  pod_restart_rule: |-
+    name: Pod Restart
+    index: monitor-*
+    type: any
+    filter:
+    - query:
+        query_string:
+          query: '(docker.container: "nginx-ic" AND "starting ingress controller") OR (docker.container: "author" AND "resuming normal operations") OR (docker.container: "service" AND "listening on") OR (docker.container: "cassandra" AND "cassandra version")'
+    alert_subject: "Pod Restart (<https://kibana.prod-elk.yournetwork.net/app/kibana#/discover|View In Kibana>)"
+    alert_text: "Pod [{0}] has restarted. In most cases this is not an urgent condition, but if it happens regularly it should be investigated."
+    alert_text_args: ["kube.pod"]
+    alert:
+      - slack
+    slack_webhook_url: SLACK_HOOK_URL_HERE
+    slack_username_override: Yellow Alert
+    slack_emoji_override: ":warning:"
+    slack_msg_color: warning
+
+  # Create an alert if a segmentation fault occurs
+  segfault_rule: |-
+    name: Segmentation Fault
+    index: monitor-*
+    type: any
+    filter:
+    - query:
+        query_string:
+          query: 'log: "Segmentation fault"'
+    alert_subject: "Segmentation Fault (<https://kibana.prod-elk.yournetwork.net/app/kibana#/discover|View In Kibana>)"
+    alert_text: "Pod [{0}] has experienced a segmentation fault. In most cases this is not an urgent condition, but if it happens regularly it should be investigated."
+    alert_text_args: ["kube.pod"]
+    alert:
+      - slack
+    slack_webhook_url: SLACK_HOOK_URL_HERE
+    slack_username_override: Yellow Alert
+    slack_emoji_override: ":warning:"
+    slack_msg_color: warning
+
+  # Create an alert if an Author database error occurs
+  dbfail_rule: |-
+    name: Database Error
+    index: monitor-*
+    type: any
+    filter:
+    - query:
+        query_string:
+          query: 'log: "db do failed" OR log: apollo.model.*.dberror'
+    alert_subject: "Database Error (<https://kibana.prod-elk.yournetwork.net/app/kibana#/discover|View In Kibana>)"
+    alert_text: "Pod [{0}] has experienced a database error. In most cases this is not an urgent condition, but if it happens regularly it should be investigated."
+    alert_text_args: ["kube.pod"]
+    alert:
+      - slack
+    slack_webhook_url: SLACK_HOOK_URL_HERE
+    slack_username_override: Yellow Alert
+    slack_emoji_override: ":warning:"
+    slack_msg_color: warning
+
+  # Create an alert if there is an anomolous audit event
+  audit_rule: |-
+    name: Audit Event
+    index: monitor-*
+    type: any
+    filter:
+    - query:
+        query_string:
+          query: 'log: "AUDIT-EVENT-ALERT"'
+    alert_subject: "Audit Event (<https://kibana.prod-elk.yournetwork.net/app/kibana#/discover|View In Kibana>)"
+    alert_text: "An anomolous audit event has occurred. In most cases this is not an urgent condition, but it should be investigated, as it might be an early warning sign of trouble."
+    alert:
+      - slack
+    slack_webhook_url: SLACK_HOOK_URL_HERE
+    slack_username_override: Yellow Alert
+    slack_emoji_override: ":warning:"
+    slack_msg_color: warning
+
+  # Create an alert to ping a slack channel
+  test_rule: |-
+    name: Prod ELK Test
+    index: monitor*
+    type: any
+    filter:
+    - query:
+        query_string:
+          query: 'log: "notice"'
+    alert_subject: "Test Event \nIndex: monitor* \nQuery: log: \"notice\" \n<https://kibana.prod-elk.yournetwork.net/app/kibana#/discover|View in Kibana>"
+    alert_text: "Test Alert"
+    alert:
+      - slack
+    slack_webhook_url: SLACK_HOOK_URL_HERE
+    slack_username_override: Yellow Alert
+    slack_emoji_override: ":warning:"
+    slack_msg_color: warning

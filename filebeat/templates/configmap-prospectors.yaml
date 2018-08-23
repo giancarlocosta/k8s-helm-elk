@@ -1,0 +1,613 @@
+{{- $vpcId := .Values.vpcId }}
+{{- $filebeatVersionGte6 := .Values.filebeatVersionGte6 }}
+# Mount this to filebeat pods since mounted files in the pods will update.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-prospectors
+  labels:
+    app: filebeat-prospectors
+    {{- include "release_labels" . | indent 4 }}
+data:
+  # Common/Environment Agnostic prospectors
+{{- if .Values.prospectors.common.enabled }}
+{{ (tpl (.Files.Glob "prospectors/common/*.yml").AsConfig . ) | indent 2 }}
+{{- end }}
+  # Custom prospectors
+{{- if .Values.prospectors.custom.enabled }}
+{{ (tpl (.Files.Glob "prospectors/custom/*.yml").AsConfig . ) | indent 2 }}
+{{- end }}
+  # Templated prospectors
+{{- if .Values.prospectors.templates.enabled }}
+  # Winston Prospectors
+{{- if .Values.prospectors.templates.winston }}
+{{- range .Values.prospectors.templates.winston }}
+{{- $prospectorSet := . -}}
+{{- range $namespace := $prospectorSet.namespaces }}
+
+  winston-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        - '/var/log/containers/canary-{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      multiline.pattern: '^\d{4}-\d{2}-\d{2}T[0-2][0-9]:[0-5][0-9]:[0-6][0-9](\.\d+)?Z'
+      multiline.negate: true
+      multiline.match: after
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - winston
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+{{- end }}
+{{- end }}
+{{- end }}
+  # Redis Prospectors
+{{- if .Values.prospectors.templates.redis }}
+{{- range .Values.prospectors.templates.redis }}
+{{- $prospectorSet := . -}}
+{{- range $namespace := $prospectorSet.namespaces }}
+  redis-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        - '/var/log/containers/redis*_{{ $namespace }}_*.log'
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      multiline.pattern: '^\d{4}-\d{2}-\d{2}T[0-2][0-9]:[0-5][0-9]:[0-6][0-9](\.\d+)?Z'
+      multiline.negate: true
+      multiline.match: after
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - redis
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+{{- end }}
+{{- end }}
+{{- end }}
+  # Mongo Prospectors
+{{- if .Values.prospectors.templates.mongo }}
+{{- range .Values.prospectors.templates.mongo }}
+{{- $prospectorSet := . -}}
+{{- range $namespace := $prospectorSet.namespaces }}
+  mongo-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        - '/var/log/containers/mongo*_{{ $namespace }}_*.log'
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      multiline.pattern: '^\d{4}-\d{2}-\d{2}T[0-2][0-9]:[0-5][0-9]:[0-6][0-9](\.\d+)?Z'
+      multiline.negate: true
+      multiline.match: after
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - mongo
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+{{- end }}
+{{- end }}
+{{- end }}
+  # Rabbit Prospectors
+{{- if .Values.prospectors.templates.rabbit }}
+{{- range .Values.prospectors.templates.rabbit }}
+{{- $prospectorSet := . -}}
+{{- range $namespace := $prospectorSet.namespaces }}
+  rabbit-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        - '/var/log/containers/rabbit*_{{ $namespace }}_*.log'
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      multiline.pattern: '^\d{4}-\d{2}-\d{2}T[0-2][0-9]:[0-5][0-9]:[0-6][0-9](\.\d+)?Z'
+      multiline.negate: true
+      multiline.match: after
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - rabbitmq
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+{{- end }}
+{{- end }}
+{{- end }}
+  # Cassandra Prospectors
+{{- if .Values.prospectors.templates.cassandra }}
+{{- range .Values.prospectors.templates.cassandra }}
+{{- $prospectorSet := . -}}
+{{- range $namespace := $prospectorSet.namespaces }}
+  cassandra-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        - '/var/log/containers/cassandra*_{{ $namespace }}_*.log'
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      multiline.pattern: '^(TRACE|DEBUG|INFO|WARN|ERROR|\d{4}-\d{2}-\d{2} [0-2][0-9]:[0-5][0-9]:[0-6][0-9])'
+      multiline.negate: true
+      multiline.match: after
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - cassandra
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+{{- end }}
+{{- end }}
+{{- end }}
+  # Admin Services Prospectors
+{{- if .Values.prospectors.templates.admin }}
+{{- range .Values.prospectors.templates.admin }}
+{{- $prospectorSet := . -}}
+{{- range $namespace := $prospectorSet.namespaces }}
+  admin-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        - '/var/log/containers/admin-services*_{{ $namespace }}_*.log'
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      multiline.pattern: '^((\d{4}-\d{2}-\d{2}\s[0-2][0-9]:[0-5][0-9]:[0-6][0-9]([\,\.]\d+))|(\d{2}-\w+-\d{4}\s[0-2][0-9]:[0-5][0-9]:[0-6][0-9]([\,\.]\d+)))'
+      multiline.negate: true
+      multiline.match: after
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - admin
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+{{- end }}
+{{- end }}
+{{- end }}
+  # Author Services Prospectors
+{{- if .Values.prospectors.templates.author }}
+{{- range .Values.prospectors.templates.author }}
+{{- $prospectorSet := . -}}
+{{- range $namespace := $prospectorSet.namespaces }}
+  author-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        - '/var/log/containers/author*_{{ $namespace }}_*.log'
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - author
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+{{- end }}
+{{- end }}
+{{- end }}
+  # Default HTTP Backend Prospectors
+{{- if .Values.prospectors.templates.defaultHttpBackend }}
+{{- range .Values.prospectors.templates.defaultHttpBackend }}
+{{- $prospectorSet := . -}}
+{{- range $namespace := $prospectorSet.namespaces }}
+  defaultHttpBackend-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        - '/var/log/containers/default-http-backend*_{{ $namespace }}_*.log'
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - default-http-backend
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+{{- end }}
+{{- end }}
+{{- end }}
+  # Nginx Prospectors
+{{- if .Values.prospectors.templates.nginx }}
+{{- range .Values.prospectors.templates.nginx }}
+{{- $prospectorSet := . -}}
+{{- range $namespace := $prospectorSet.namespaces }}
+  nginx-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - nginx_access
+            - nginx_error
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+{{- end }}
+{{- end }}
+{{- end }}
+  # Nginx IC Prospectors
+{{- if .Values.prospectors.templates.nginxIc }}
+{{- range .Values.prospectors.templates.nginxIc }}
+{{- $prospectorSet := . -}}
+{{- range $namespace := $prospectorSet.namespaces }}
+  nginxIc-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        - '/var/log/containers/nginx-ic*_{{ $namespace }}_*.log'
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - nginx_ic_access
+            - nginx_error
+            - kubernetes
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+{{- end }}
+{{- end }}
+{{- end }}
+  # ELK Component Prospectors
+{{- if .Values.prospectors.templates.elk }}
+{{- range .Values.prospectors.templates.elk }}
+{{- $prospectorSet := . -}}
+{{- range $namespace := $prospectorSet.namespaces }}
+  elasticsearch-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        - '/var/log/containers/elasticsearch*_{{ $namespace }}_*.log'
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}-elk-elasticsearch"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - elasticsearch
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+  kibana-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        - '/var/log/containers/kibana*_{{ $namespace }}_*.log'
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}-elk-kibana"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - kibana
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+  logstash-{{ $namespace }}-logs.yml: |-
+    {{- if $filebeatVersionGte6 }}
+    - type: log
+      enabled: true
+    {{- else }}
+    filebeat.prospectors:
+    - input_type: log
+    {{- end }}
+      paths:
+        - '/var/log/containers/logstash*_{{ $namespace }}_*.log'
+        {{- range $svc := $prospectorSet.services }}
+        - '/var/log/containers/{{ $svc }}*_{{ $namespace }}_*.log'
+        {{- end}}
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        # IMPORTANT! index_prefix used to categorize/index logs from different applications/envs
+        {{- if $prospectorSet.index_prefix }}
+        index_prefix: {{ $prospectorSet.index_prefix }}
+        {{- else }}
+        index_prefix: "{ $vpcId }}-{{ $namespace }}-elk-logstash"
+        {{- end }}
+        vpc_name: "{{ $vpcId }}"
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - logstash
+            {{- range $format := $prospectorSet.formats }}
+            - {{ $format }}
+            {{- end}}
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- end }}

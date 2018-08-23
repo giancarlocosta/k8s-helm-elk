@@ -1,0 +1,364 @@
+{
+  "SEE_HERE": "https://www.elastic.co/guide/en/elasticsearch/reference/6.0/removal-of-types.html",
+  "index_patterns": [
+    "*testindex-*"
+  ],
+  "settings" : {
+    "index.refresh_interval" : "5s"
+  },
+  "mappings": {
+    "_default_" : {
+      "properties" : {
+        "@timestamp" : {
+          "type" : "date"
+        },
+        "@version" : {
+          "type" : "text",
+          "fields" : {
+            "keyword" : {
+              "type" : "keyword",
+              "ignore_above" : 256
+            }
+          }
+        },
+        "vpc_name" : {
+          "type" : "text",
+          "fields" : {
+            "keyword" : {
+              "type" : "keyword",
+              "ignore_above" : 256
+            }
+          }
+        },
+        "beat" : {
+          "properties" : {
+            "hostname" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "name" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "version" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            }
+          }
+        },
+        "kube" : {
+          "properties" : {
+            "container" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "container_id" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "namespace" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "node" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "pod" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            }
+          }
+        },
+        "host" : {
+          "type": "object",
+          "dynamic": true,
+          "enabled": true
+        },
+        "log" : {
+          "type" : "text",
+          "fields" : {
+            "keyword" : {
+              "type" : "keyword",
+              "ignore_above" : 256
+            }
+          }
+        },
+        "log_info" : {
+          "properties" : {
+            "format" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "input_source" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "origin" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "source" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "stream" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "transport" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            }
+          }
+        },
+        "log_level" : {
+          "type" : "text",
+          "fields" : {
+            "keyword" : {
+              "type" : "keyword",
+              "ignore_above" : 256
+            }
+          }
+        },
+        "log_message" : {
+          "type" : "text",
+          "fields" : {
+            "keyword" : {
+              "type" : "keyword",
+              "ignore_above" : 256
+            }
+          }
+        },
+        "log_timestamp" : {
+          "type" : "date"
+        },
+        "offset" : {
+          "type" : "long"
+        },
+        "received_at" : {
+          "type" : "date"
+        },
+        "source" : {
+          "type" : "text",
+          "fields" : {
+            "keyword" : {
+              "type" : "keyword",
+              "ignore_above" : 256
+            }
+          }
+        },
+        "stream" : {
+          "type" : "text",
+          "fields" : {
+            "keyword" : {
+              "type" : "keyword",
+              "ignore_above" : 256
+            }
+          }
+        },
+        "tags" : {
+          "type" : "text",
+          "fields" : {
+            "keyword" : {
+              "type" : "keyword",
+              "ignore_above" : 256
+            }
+          }
+        },
+        "time" : {
+          "type" : "date"
+        },
+        "type" : {
+          "type" : "text",
+          "fields" : {
+            "keyword" : {
+              "type" : "keyword",
+              "ignore_above" : 256
+            }
+          }
+        },
+        "http" : {
+          "properties" : {
+            "agent" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "auth" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "bytes" : {
+              "type" : "long"
+            },
+            "client" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "http_version" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "ident" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "method" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "request" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "request_id" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "response" : {
+              "type" : "integer"
+            }
+          }
+        },
+        "cassandra" : {
+          "properties" : {
+            "java_file" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "line_number" : {
+              "type" : "integer"
+            },
+            "process" : {
+              "type" : "text",
+              "fields" : {
+                "keyword" : {
+                  "type" : "keyword",
+                  "ignore_above" : 256
+                }
+              }
+            },
+            "thread_id" : {
+              "type" : "integer"
+            }
+          }
+        }
+      }
+    }
+  }
+}

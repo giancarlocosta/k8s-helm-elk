@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "logstash.fullname" . }}-configmap
+  labels:
+    app: {{ template "logstash.name" . }}
+data:
+{{- range $key, $value := .Values.config }}
+  {{ $key }}: |-
+{{ $value | indent 4 }}
+{{- end }}

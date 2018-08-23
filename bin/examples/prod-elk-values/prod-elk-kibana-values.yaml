@@ -1,0 +1,39 @@
+image:
+  repository: "docker.elastic.co/kibana/kibana"
+  tag: 6.3.1
+  pullPolicy: IfNotPresent
+
+replicaCount: 3
+
+env:
+  ELASTICSEARCH_URL: "http://elasticsearch:9200"
+
+resources:
+  limits:
+    cpu: 1
+  requests:
+    cpu: 100m
+
+service:
+  type: ClusterIP
+  externalPort: 80
+  internalPort: 5601
+
+ingress:
+  enabled: true
+  hosts:
+    - "kibana.prod-elk.yournetwork.net"
+  annotations:
+    kubernetes.io/ingress.class: "elk-internal-ingress"
+    ingress.kubernetes.io/service-upstream: "true"
+    ingress.kubernetes.io/force-ssl-redirect: "true"
+
+files:
+  kibana.yml:
+    elasticsearch.url: http://elasticsearch:9200
+    ## Disable X-Pack
+    xpack.security.enabled: false
+    xpack.monitoring.enabled: true
+    xpack.ml.enabled: false
+    xpack.graph.enabled: false
+    xpack.reporting.enabled: false

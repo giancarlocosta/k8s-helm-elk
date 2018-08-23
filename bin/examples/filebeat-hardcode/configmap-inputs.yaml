@@ -1,0 +1,140 @@
+# NOTE: prospectors are now inputs in 6.x!!!
+# https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-reference-yml.html
+# https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-configuration-reloading.html#load-input-config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-inputs
+data:
+
+  elk.yml: |-
+    - type: log
+      enabled: true
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      multiline.pattern: '^\s'
+      multiline.match: after
+      paths:
+        - /var/log/containers/kibana*.log
+      fields_under_root: true
+      fields:
+        index_prefix: prod-elk-kibana
+        vpc_name: prod-elk
+        info:
+          origin: kubernetes
+          source: docker
+          transport: filebeat
+          formats:
+            - kibana
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+    - type: log
+      enabled: true
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      multiline.pattern: '^\s'
+      multiline.match: after
+      paths:
+        - /var/log/containers/logstash*.log
+      fields_under_root: true
+      fields:
+        index_prefix: prod-elk-logstash
+        vpc_name: prod-elk
+        info:
+          origin: kubernetes
+          source: docker
+          transport: filebeat
+          formats:
+            - logstash
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+    - type: log
+      enabled: true
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      multiline.pattern: '^\s'
+      multiline.match: after
+      paths:
+        - /var/log/containers/elasticsearch*.log
+      fields_under_root: true
+      fields:
+        index_prefix: prod-elk-elasticsearch
+        vpc_name: prod-elk
+        info:
+          origin: kubernetes
+          source: docker
+          transport: filebeat
+          formats:
+            - elasticsearch
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+
+  test.yml: |-
+    - type: log
+      enabled: true
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      multiline.pattern: '^\s'
+      multiline.match: after
+      paths:
+        - /var/log/containers/test-service*.log
+      fields_under_root: true
+      fields:
+        index_prefix: prod-elk-test
+        vpc_name: prod-elk
+        info:
+          origin: kubernetes
+          source: docker
+          transport: filebeat
+          formats:
+            - winston
+        kube:
+          node: ${KUBERNETES_NODE_NAME}
+
+  kube-logs.yaml: |-
+    #
+    # process system logs, such as kube-apiserver, kube-controller-manager, etc
+    #
+    - type: log
+      enabled: true
+      fields:
+        vpc_name: prod-elk
+        node: ${KUBERNETES_NODE_NAME}
+        type: kube-logs
+      fields_under_root: true
+      paths:
+        - /var/log/hostlogs/kube*.log
+
+  kube-events.yml: |-
+    - type: log
+      enabled: true
+      # This prospector will scrape the logs of a pod (probably in the kube-system namespace)
+      # that is watching Kubernetes events via the Kubernetes API (/api/watch/events).
+      paths:
+        - '/var/log/containers/kubernetes-event-logger*.log'
+      symlinks: true
+      json.message_key: log
+      json.keys_under_root: true
+      json.add_error_key: true
+      fields_under_root: true
+      fields:
+        index_prefix: prod-elk-kubernetes-event
+        vpc_name: prod-elk
+        info:
+          origin: kubernetes
+          source: docker
+          formats:
+            - kubernetes-event
+            - kubernetes-event-raw
+            - kubernetes-event-logger
+          transport: filebeat
+        kube:
+          node: ${KUBERNETES_NODE_NAME}

@@ -1,0 +1,116 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ template "es.fullname" . }}-exporter
+  labels:
+    app: {{ template "es.fullname" . }}
+{{- if .Values.exporter.service.annotations }}
+  annotations:
+{{ toYaml .Values.exporter.service.annotations | indent 4 }}
+{{- end }}
+spec:
+  type: {{ .Values.exporter.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.exporter.service.httpPort }}
+      protocol: TCP
+  selector:
+    app: {{ template "es.fullname" . }}
+    role: exporter
+
+---
+
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: {{ template "es.fullname" . }}-exporter
+  labels:
+    app: {{ template "es.fullname" . }}
+    role: exporter
+spec:
+  replicas: {{ .Values.exporter.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "es.fullname" . }}
+      role: exporter
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: {{ template "es.fullname" . }}
+        role: exporter
+    spec:
+      restartPolicy: {{ .Values.exporter.restartPolicy }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: exporter
+          image: "{{ .Values.exporter.image.repository }}:{{ .Values.exporter.image.tag }}"
+          imagePullPolicy: {{ .Values.exporter.image.pullPolicy }}
+          command: ["elasticsearch_exporter",
+                    {{- if .Values.exporter.es.uri }}
+                    "-es.uri=http://{{ .Values.exporter.es.uri }}",
+                    {{- else }}
+                    "-es.uri=http://{{ template "es.fullname" . }}:{{ .Values.service.httpPort }}",
+                    {{- end }}
+                    "-es.all={{ .Values.exporter.es.all }}",
+                    "-es.indices={{ .Values.exporter.es.indices }}",
+                    "-es.timeout={{ .Values.exporter.es.timeout }}",
+                    {{- if .Values.exporter.es.ssl.enabled }}
+                    "-es.ca=/ssl/ca.pem",
+                    "-es.client-cert=/ssl/client.pem",
+                    "-es.client-private-key=/ssl/client.key",
+                    {{- end }}
+                    "-web.listen-address=:{{ .Values.exporter.service.httpPort }}",
+                    "-web.telemetry-path={{ .Values.exporter.web.path }}"]
+          securityContext:
+            capabilities:
+              drop:
+                - SETPCAP
+                - MKNOD
+                - AUDIT_WRITE
+                - CHOWN
+                - NET_RAW
+                - DAC_OVERRIDE
+                - FOWNER
+                - FSETID
+                - KILL
+                - SETGID
+                - SETUID
+                - NET_BIND_SERVICE
+                - SYS_CHROOT
+                - SETFCAP
+            readOnlyRootFilesystem: true
+          resources:
+{{ toYaml .Values.exporter.resources | indent 12 }}
+          ports:
+            - containerPort: {{ .Values.exporter.service.httpPort }}
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            timeoutSeconds: 10
+          volumeMounts:
+            {{- if .Values.exporter.es.ssl.enabled }}
+            - mountPath: /ssl
+              name: ssl
+            {{- end }}
+      volumes:
+        {{- if .Values.exporter.es.ssl.enabled }}
+        - name: ssl
+          secret:
+            secretName: {{ template "es.fullname" . }}-cert
+        {{- end }}

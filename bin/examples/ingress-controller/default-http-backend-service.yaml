@@ -1,0 +1,17 @@
+#
+# Service for default HTTP backend for Ingress
+#
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: default-http-backend
+  name: default-http-backend
+spec:
+  type: ClusterIP
+  selector:
+    app: default-http-backend
+  ports:
+    - port: 80
+      protocol: TCP
+      targetPort: http

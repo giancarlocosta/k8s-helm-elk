@@ -1,0 +1,13 @@
+Chart Name: {{ .Chart.Name }}
+Chart Version: {{ .Chart.Version }}
+
+Release Name: {{ .Release.Name }}
+Release Namespace: {{ .Release.Namespace }}
+Release Revision: {{ .Release.Revision }}
+
+Application Version: {{ .Chart.AppVersion }}
+
+Useful Release commands:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get {{ .Release.Name }}

@@ -1,0 +1,26 @@
+{{- if .Values.filebeatVersionGte6 }}
+- type: log
+  enabled: true
+{{- else }}
+filebeat.prospectors:
+- input_type: log
+{{- end }}
+  paths:
+    - '/var/log/containers/consul-agent-*_ops_*.log'
+    - '/var/log/containers/grafana*.log'
+    - '/var/log/containers/prometheus*.log'
+  symlinks: true
+  json.message_key: log
+  json.keys_under_root: true
+  json.add_error_key: true
+  fields_under_root: true
+  fields:
+    index_prefix: "{{ .Values.vpcId }}-monitor"
+    vpc_name: "{{ .Values.vpcId }}"
+    info:
+      origin: kubernetes
+      source: docker
+      formats: []
+      transport: filebeat
+    kube:
+      node: ${KUBERNETES_NODE_NAME}

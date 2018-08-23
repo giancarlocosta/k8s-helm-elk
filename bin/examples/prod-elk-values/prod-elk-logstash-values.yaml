@@ -1,0 +1,702 @@
+replicaCount: 3
+
+image:
+  repository: "docker.elastic.co/logstash/logstash"
+  tag: 6.3.1
+  pullPolicy: IfNotPresent
+
+exporter:
+  logstash:
+    image:
+      repository: bonniernews/logstash_exporter
+      tag: v0.1.2
+      pullPolicy: IfNotPresent
+    env: {}
+
+service:
+  type: LoadBalancer
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: "logstash.prod-elk.net"
+    service.beta.kubernetes.io/aws-load-balancer-internal: 0.0.0.0/0
+    service.beta.kubernetes.io/aws-load-balancer-backend-protocol: tcp
+    service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "900"
+    service.beta.kubernetes.io/aws-load-balancer-access-log-emit-interval: "5"
+    service.beta.kubernetes.io/aws-load-balancer-access-log-enabled: "true"
+    service.beta.kubernetes.io/aws-load-balancer-access-log-s3-bucket-name: "prod-elb-logs"
+    service.beta.kubernetes.io/aws-load-balancer-access-log-s3-bucket-prefix: prod-elk/logstash
+
+# Make sure to set the heap size below (in jvm.options config) to match the
+# mem requests/limits here!!
+resources:
+  requests:
+    cpu: 1
+    memory: 4Gi
+  limits:
+    cpu: 1
+    memory: 4Gi
+
+# Make sure your logstash.conf outputs' hosts match what is here
+elasticsearch:
+  host: elasticsearch
+  port: 9200
+
+config:
+  # Make sure to set the pod mem requests/limits above to handle at least this
+  # heap size!!
+  jvm.options: |
+    # Check with  http://0.0.0.0:9600/_node/jvm?pretty
+    -Xms4g
+    -Xmx4g
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    path.config: /usr/share/logstash/pipeline
+    # config.debug: true
+    # log.level: debug
+  logstash.conf: |
+    # Beat input
+    input {
+        beats {
+            port => 5044
+            ssl => false
+        }
+        beats {
+            port => 5045
+            ssl => false
+        }
+        # For testing
+        tcp {
+          codec => plain {
+            charset  => "UTF-8"
+            'format' => 'json_event'
+          }
+          'port' => '9563'
+          'type' => 'stucco-tcp'
+        }
+    }
+
+    # HTTP input
+    input {
+        http {
+            type => "http"
+            add_field => {
+                index_prefix => "elk"
+                info_str => '{"field1Key":"field1Value","field2Key":"field2Value"}'
+            }
+        }
+    }
+
+    output {
+        if [index_prefix] {
+            elasticsearch {
+                hosts => ["elasticsearch:9200"]
+                index => "%{[index_prefix]}-%{+YYYY.MM.dd}"
+            }
+        } else if [@metadata][beat] {
+            elasticsearch {
+                hosts => ["elasticsearch:9200"]
+                index => "%{[@metadata][beat]}-%{[@metadata][version]}-%{+YYYY.MM.dd}"
+            }
+        } else {
+            elasticsearch {
+                hosts => ["elasticsearch:9200"]
+                index => "generic-%{+YYYY.MM.dd}"
+            }
+        }
+    }
+
+    filter {
+      if [type] == "kube-logs" {
+        mutate {
+          rename => ["log", "message"]
+          add_tag => [ "pelias", "kubernetes" ]
+        }
+        date {
+          match => ["time", "ISO8601"]
+          remove_field => ["time"]
+        }
+        # all standard container logs files match a common pattern
+        grok {
+            match => { "source" => "/var/log/containers/%{DATA:pod_name}_%{DATA:namespace}_%{GREEDYDATA:container_name}-%{DATA:container_id}.log" }
+            remove_field => ["source"]
+        }
+        # system services have a simpler log filename format that does not include namespace, pod names, or container ids
+        grok {
+            match => { "source" => "/var/log/hostlogs/%{DATA:container_name}.log" }
+            add_field => { "namespace" => "kube-system" }
+            remove_field => ["source"]
+        }
+      }
+    }
+
+    filter {
+
+        if [info_str] {
+            json {
+                source => "info_str"
+                target => "info"
+                remove_field => ["info_str"]
+            }
+        }
+
+        # Default type to 'log' if none set
+        if !("" in [type]) {
+            mutate { replace => [ "type", "log" ] }
+        }
+
+        if [info] {
+            mutate {
+                rename => {
+                    "info" => "%{[type]}_info"
+                }
+            }
+        }
+
+        if [type] == "log" {
+            mutate {
+                rename => {
+                    message => "log"
+                    add_tag => [ "log_parser_skipped" ]
+                }
+                # Record when an entry was received at, as @timestamp field value will
+                # likely be replaced below
+                add_field => {
+                    "received_at" => "%{@timestamp}"
+                }
+            }
+        }
+
+        # Docker specific filter. Allows to distinguish stdout from stderr formats
+        if [log_info][source] == "docker" {
+            mutate {
+                rename => {
+                    stream => "[docker][stream]"
+                }
+            }
+        }
+
+        # Winston log filters.
+        if "winston" in [log_info][formats] and "log_parser_success" not in [tags] {
+            if [log] =~ "^(npm |> )" {
+                drop { }
+            }
+            grok {
+                pattern_definitions => {
+                    MODULE_PATH => "(\S+[\:\/])*(\S+)[\.js]?"
+                    WINSTON_LOG_LEVEL => "(emerg|alert|crit|err|error|warning|notice|info|debug)"
+                    AUDIT_LOG_LEVEL => "(emerg|alert|crit|err|warning)"
+                    ESCAPE_COLOR => "((\\e)?(.)?\[[3-4]\d(;\d{1,2})*m)"
+                    WINSTON_ENTRY_HEADER => "%{TIMESTAMP_ISO8601:log_timestamp_raw} - (?:%{ESCAPE_COLOR})?%{WINSTON_LOG_LEVEL:log_level}(?:%{ESCAPE_COLOR})?"
+                    WINSTON_ACCESS_MESSAGE => "%{IPORHOST:[winston][remote_addr]} \"(?:%{WORD:[winston][request_method]} %{NOTSPACE:[winston][request_url]})\"(?: (-|%{POSINT:[winston][status]:int}) (-|%{INT:[winston][bytes_sent]:int}))? (?:-|%{UUID:request_id})"
+                    WINSTON_ENTRY_SUFFIX => "(?:%{MODULE_PATH:[winston][source_file]})?(?: - %{UUID:request_id})?"
+                    WINSTON_EVENT_MESSAGE => "%{GREEDYDATA}"
+                    WINSTON_AUDIT_EVENT_MESSAGE => "%{WINSTON_ENTRY_SUFFIX} - AUDIT-EVENT-ALERT - %{AUDIT_LOG_LEVEL:[event_level]} - %{WINSTON_EVENT_MESSAGE:[event_raw]}"
+
+                }
+                match => {
+                    log => "^(%{WINSTON_ENTRY_HEADER}( - |: )(%{WINSTON_ACCESS_MESSAGE}|%{WINSTON_ENTRY_SUFFIX} - %{GREEDYDATA:log_message}|%{WINSTON_AUDIT_EVENT_MESSAGE}|%{WINSTON_EVENT_MESSAGE:[event_raw]})|%{GREEDYDATA})$"
+                }
+                add_field => {
+                    "[log_info][format]" => "winston"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "winston" ]
+            }
+            if [event_raw] {
+                json {
+                    source => "[event_raw]"
+                    target => "[event]"
+                    remove_field => [ "[event_raw]" ]
+                    tag_on_failure => [ "log_parser_failure", "json_event_parser_failure" ]
+                }
+                if "json_event_parser" not in [tags] {
+                    date {
+                        match => [ "[event][timestamp]", "ISO8601" ]
+                        target => "[event][timestamp]"
+                        tag_on_failure => [ "json_event_date_parser_failure" ]
+                    }
+                }
+            }
+            date {
+                match => [ "log_timestamp_raw", "ISO8601" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+        }
+
+        if "nginx_error" in [log_info][formats] and "log_parser_success" not in [tags] {
+            grok {
+                pattern_definitions => {
+                    NGINX_TIMESTAMP => "%{YEAR}/%{MONTHNUM2}/%{MONTHDAY} %{TIME}"
+                    NGINX_EXTRA => "(?:, client: %{IPORHOST:[nginx][client]})?(?:, server: %{IPORHOST:[nginx][server]}(?::%{POSINT:[nginx][server_port]})?)?(?:, request: %{QS:[nginx][request]})?(?:, upstream: \"%{URI:[nginx][upstream]}\")?(?:, host: %{QS:[nginx][host]})?(?:, referrer: \"%{URI:[nginx][referrer]}\")?"
+                }
+                match => {
+                    log => "^%{NGINX_TIMESTAMP:log_timestamp_raw} \[%{LOGLEVEL:log_level}\] %{POSINT:[nginx][pid]:int}#%{INT:[nginx][tid]:int}: %{DATA:log_message}%{NGINX_EXTRA}$"
+                }
+                add_field => {
+                    "[log_info][format]" => "nginx_error"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "nginx_error" ]
+            }
+            date {
+                match => [ "log_timestamp_raw", "YYYY/MM/dd HH:mm:ss" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+        }
+
+        if "nginx_access" in [log_info][formats] and "log_parser_success" not in [tags] {
+            grok {
+                pattern_definitions => {
+                    HTTP_REQUEST => "\"(?:%{WORD:[http][request_method]} %{NOTSPACE:[http][request_url]}(?: HTTP/%{NUMBER:[http][http_version]})?|%{DATA:[http][request]})\""
+                    HTTP_RESPONSE => "(?:%{INT:[http][status]:int}) (?:%{INT:[http][body_bytes_sent]:int})(?: %{NUMBER:[http][processing_time]:float})?"
+                }
+                match => {
+                    log => "^%{TIMESTAMP_ISO8601:log_timestamp_raw} - %{IPORHOST:[http][remote_addr]} %{HTTP_REQUEST} %{HTTP_RESPONSE} (?:-|%{UUID:request_id}) %{QS:[http][user_agent]}$"
+                }
+                add_field => {
+                    "[log_info][format]" => "nginx_access"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "nginx_access" ]
+            }
+            date {
+                match => [ "log_timestamp_raw", "ISO8601" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+        }
+
+        if "nginx_access" in [log_info][formats] and "log_parser_success" not in [tags] {
+            # Format doc: http://nginx.org/en/docs/http/ngx_http_log_module.html#access_log
+            grok {
+                pattern_definitions => {
+                    HTTP_REMOTE => "(?:%{IPORHOST:[http][remote_addr]}) - (?:-|%{HTTPDUSER:[http][remote_user]})"
+                    HTTP_TIMESTAMP => "\[%{HTTPDATE:log_timestamp_raw}\]"
+                    HTTP_REQUEST => "\"(?:%{WORD:[http][request_method]} %{NOTSPACE:[http][request_url]}(?: HTTP/%{NUMBER:[http][http_version]})?|%{DATA:[http][request]})\""
+                    HTTP_RESPONSE => "(?:%{INT:[http][status]:int}) (?:%{INT:[http][body_bytes_sent]:int})"
+                    HTTP_ENTRY => "%{HTTP_REMOTE} %{HTTP_TIMESTAMP} %{HTTP_REQUEST} %{HTTP_RESPONSE}"
+                }
+                match => {
+                    log => "^%{HTTP_ENTRY} %{QS:[http][referrer]} %{QS:[http][user_agent]}$"
+                }
+                add_field => {
+                    "[log_info][format]" => "nginx_access"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "nginx_access" ]
+            }
+            date {
+                match => [ "log_timestamp_raw", "dd/MMM/YYYY:HH:mm:ss Z" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+            # useragent {
+            #     source => "[http][user_agent]"
+            #     target => "[http][user_agent_parsed]"
+            #     add_tag => [ "useragent" ]
+            # }
+
+        }
+        if "nginx_ic_access" in [log_info][formats] and "log_parser_success" not in [tags] {
+            # Format doc: https://github.com/kubernetes/ingress/tree/master/controllers/nginx#log-format
+            grok {
+                pattern_definitions => {
+                    HOSTPORTS => "(-|%{HOSTPORT})(, (-|%{HOSTPORT}))*"
+                    INTS => "(-|%{INT})(, (-|%{INT}))*"
+                    FLOATS => "(-|%{NUMBER})(, (-|%{NUMBER}))*"
+                    HTTP_REQUEST => "\"(?:%{WORD:[http][request_method]} %{NOTSPACE:[http][request_url]}(?: HTTP/%{NUMBER:[http][http_version]})?|%{DATA:[http][request]})\""
+                    HTTP_RESPONSE => "(?:%{INT:[http][status]:int}) (?:%{INT:[http][body_bytes_sent]:int})"
+                }
+                match => {
+                    log => "^(?:%{IPORHOST:[http][remote_addr]})? - \[(?:%{DATA:[http][proxy_add_x_forwarded_for]})?\] - (?:-|%{HTTPDUSER:[http][remote_user]}) \[%{HTTPDATE:log_timestamp_raw}\] %{HTTP_REQUEST} %{HTTP_RESPONSE} %{QS:[http][referrer]} %{QS:[http][user_agent]} (?:%{INT:[http][request_length]}) (?:%{NUMBER:[http][request_time]}) \[(?:-|%{DATA:[http][proxy_upstream_name]})\] (?:%{HOSTPORTS:[http][upstream][addr]}) (?:%{INTS:[http][upstream][response_length]}) (?:%{FLOATS:[http][upstream][response_time]}) (?:%{INTS:[http][upstream][status]})$"
+                }
+                add_field => {
+                    "[log_info][format]" => "nginx_ic_access"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "nginx_ic_access" ]
+            }
+            date {
+                match => [ "log_timestamp_raw", "dd/MMM/YYYY:HH:mm:ss Z" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+            mutate {
+                split => {
+                    "[http][upstream][addr]" => ","
+                    "[http][upstream][response_length]" => ","
+                    "[http][upstream][response_time]" => ","
+                    "[http][upstream][status]" => ","
+                }
+            }
+        }
+
+        if "apache2_access_author" in [log_info][formats] and "log_parser_success" not in [tags] {
+            grok {
+                pattern_definitions => {
+                    HTTP_REQUEST => "\"(?:%{WORD:[http][request_method]} %{NOTSPACE:[http][request_url]}(?: HTTP/%{NUMBER:[http][http_version]})?|%{DATA:[http][request]})\""
+                    HTTP_RESPONSE => "(?:%{INT:[http][status]:int}) (?:-|%{INT:[http][body_bytes_sent]:int})"
+                    HTTP_REMOTE => "(?:%{IPORHOST:[http][remote_addr]}) - (?:-|%{HTTPDUSER:[http][remote_user]})"
+                    HTTP_TIMESTAMP => "\[%{HTTPDATE:log_timestamp_raw}\]"
+                }
+                match => {
+                    log => "^(?:%{HTTP_REMOTE} %{HTTP_TIMESTAMP} %{HTTP_REQUEST} %{HTTP_RESPONSE} %{INT:[http][request_time]:int} %{INT:[http][pid]:int} %{UUID:request_id})$"
+                }
+                add_field => {
+                    "[log_info][format]" => "apache2_access_author"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "apache2_access_author" ]
+            }
+            date {
+                match => [ "log_timestamp_raw", "dd/MMM/YYYY:HH:mm:ss Z" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+        }
+
+        if "apache2_error" in [log_info][formats] and "log_parser_success" not in [tags] {
+            grok {
+                pattern_definitions => {
+                    APACHE2_ERROR_ENTRY => "\[%{HTTPDERROR_DATE:log_timestamp_raw}\] \[%{WORD:[apache2][module]}:%{LOGLEVEL:log_level}\] \[pid %{POSINT:[apache2][pid]:int}(:tid %{NUMBER:[apache2][tid]:int})?\]( \(%{POSINT:[apache2][proxy_error_code]}\)%{DATA:[apache2][proxy_message]}:)?( \[client %{IPORHOST:[apache2][client]}:%{POSINT:[apache2][client_port]}\])?( %{DATA:[apache2][error_code]}:)? %{GREEDYDATA:log_message}"
+                }
+                match => {
+                    log => "^%{APACHE2_ERROR_ENTRY}$"
+                }
+                add_field => {
+                    "[log_info][format]" => "apache2_error"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "apache2_error" ]
+            }
+            date {
+                match => [ "log_timestamp_raw", "EEE MMM dd HH:mm:ss.SSS YYYY" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+        }
+
+        if "author" in [log_info][formats] and "log_parser_success" not in [tags] {
+            if [log] =~ "^==.*==$" {
+                drop { }
+            }
+            grok {
+                pattern_definitions => {
+                    AUTHOR_FILE_PATH => "(\S+/)*(\S+)\.(pl|pm)"
+                    AUTHOR_ENTRY1 => "%{TIMESTAMP_ISO8601:log_timestamp_raw},%{POSINT:[author][pid]:int},%{LOGLEVEL:log_level},%{POSINT:[author][status]:int},%{GREEDYDATA:log_message}"
+                    AUTHOR_ENTRY2 => "%{TIMESTAMP_ISO8601:log_timestamp_raw} %{AUTHOR_FILE_PATH:[author][source_file]} %{GREEDYDATA:log_message}"
+                    AUTHOR_ENTRY3 => "%{HTTPDERROR_DATE:log_timestamp_raw}: %{GREEDYDATA:log_message}"
+                    AUTHOR_ENTRY4 => "%{DATA:log_message} %{HTTPDERROR_DATE:log_timestamp_raw}"
+                    AUTHOR_ENTRY5 => "%{DATA:log_message} %{AUTHOR_FILE_PATH:[author][source_file]} line %{POSINT:[author][line_number]:int}."
+                    AUTHOR_ENTRY6 => "%{GREEDYDATA}"
+                }
+                match => {
+                    log => "^(%{AUTHOR_ENTRY1}|%{AUTHOR_ENTRY2}|%{AUTHOR_ENTRY3}|%{AUTHOR_ENTRY4}|%{AUTHOR_ENTRY5}|%{AUTHOR_ENTRY6})$"
+                }
+                add_field => {
+                    "[log_info][format]" => "author"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "author" ]
+            }
+            date {
+                match => [ "log_timestamp_raw", "ISO8601", "EEE MMM dd HH:mm:ss.SSS YYYY" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+        }
+
+
+        if "rabbitmq" in [log_info][formats] and "log_parser_success" not in [tags] {
+            grok {
+                match => {
+                    log => "^%{GREEDYDATA:log_message}$"
+                }
+                add_field => {
+                    "[log_info][format]" => "rabbitmq"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "rabbitmq" ]
+            }
+            date {
+                match => [ "log_timestamp_raw", "YYYY-MM-dd HH:mm:ss,SSS", "YYYY-MM-dd'T'HH:mm:ss,SSS", "ISO8601" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+        }
+
+        if "redis" in [log_info][formats] and "log_parser_success" not in [tags] {
+            grok {
+                match => {
+                    log => "^%{GREEDYDATA:log_message}$"
+                }
+                add_field => {
+                    "[log_info][format]" => "redis"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "redis" ]
+            }
+            date {
+                match => [ "log_timestamp_raw", "YYYY-MM-dd HH:mm:ss,SSS", "YYYY-MM-dd'T'HH:mm:ss,SSS", "ISO8601" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+        }
+
+        if "cassandra" in [log_info][formats] and "log_parser_success" not in [tags] {
+            grok {
+                pattern_definitions => {
+                    MILLISECOND => "(\d{3})"
+                    JAVALOG_BACK_TIMESTAMP => "%{YEAR}-%{MONTHNUM}-%{MONTHDAY}[T ]%{HOUR}:%{MINUTE}:%{SECOND},%{MILLISECOND}"
+                }
+                match => {
+                    log => "^%{LOGLEVEL:log_level}\s+\[(%{DATA:[cassandra][process]}:%{INT:[cassandra][thread_id]:int}|%{DATA:[cassandra][process]})\] %{JAVALOG_BACK_TIMESTAMP:log_timestamp_raw} %{WORD:[cassandra][java_file]}.java:%{INT:[cassandra][line_number]:int} - %{GREEDYDATA:log_message}$"
+                }
+                add_field => {
+                    "[log_info][format]" => "cassandra"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "cassandra" ]
+            }
+            date {
+                match => [ "log_timestamp_raw", "YYYY-MM-dd HH:mm:ss,SSS", "YYYY-MM-dd'T'HH:mm:ss,SSS" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+        }
+
+        if "cassandra_provisioner" in [log_info][formats] and "log_parser_success" not in [tags] {
+            grok {
+                pattern_definitions => {
+                    MILLISECOND => "(\d{3})"
+                    JAVALOG_BACK_TIMESTAMP => "%{YEAR}-%{MONTHNUM}-%{MONTHDAY}[T ]%{HOUR}:%{MINUTE}:%{SECOND},%{MILLISECOND}"
+                }
+                match => {
+                    log => "^%{JAVALOG_BACK_TIMESTAMP:log_timestamp_raw} - cassandra-provisioner - %{LOGLEVEL:log_level} - %{GREEDYDATA:log_message}$"
+                }
+                add_field => {
+                    "[log_info][format]" => "cassandra"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "cassandra_provisioner" ]
+            }
+            date {
+                match => [ "log_timestamp_raw", "YYYY-MM-dd HH:mm:ss,SSS", "YYYY-MM-dd'T'HH:mm:ss,SSS" ]
+                target => "log_timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+        }
+
+        if "kubernetes" in [log_info][formats] and "log_parser_success" not in [tags] {
+            grok {
+                pattern_definitions => {
+                    KUBE_LOGLEVEL => "(I|W|E)"
+                    KUBE_TIMESTAMP => "%{MONTHNUM2}%{MONTHDAY} %{TIME}"
+                }
+                match => {
+                    log => "^%{KUBE_LOGLEVEL:log_level}%{KUBE_TIMESTAMP:log_time}(\s+)%{GREEDYDATA:log_message}$"
+                }
+                add_field => {
+                    "[log_info][format]" => "kubernetes"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "kubernetes" ]
+            }
+            # TODO: figure out Elasticsearch to use default year for yearless timestamps
+            # date {
+            #     match => [ "log_timestamp_raw", "MMdd HH:mm:ss.SSS" ]
+            #     target => "log_timestamp"
+            #     remove_field => [ "log_timestamp_raw" ]
+            #     tag_on_failure => [ "date_parser_failure" ]
+            # }
+        }
+
+        if "aws_elb" in [log_info][formats] and "log_parser_success" not in [tags] {
+            # Format doc: http://docs.aws.amazon.com/elasticloadbalancing/latest/classic/access-log-collection.html#access-log-entry-format
+            grok {
+                pattern_definitions => {
+                    ELB_REQUEST => "\"(?:(?:-|%{WORD:[elb][request_method]}) (?:-|%{NOTSPACE:[elb][request_url]})(?: -| HTTP/%{NUMBER:[elb][http_version]})( )?|%{DATA:[elb][request]})\""
+                }
+                match => {
+                    log => "^%{TIMESTAMP_ISO8601:log_timestamp_raw} %{NOTSPACE:[elb][loadbalancer]} %{IP:[elb][client_ip]}:%{POSINT:[elb][client_port]:int} (?:-|%{IP:[elb][backend_ip]}:%{POSINT:[elb][backend_port]:int}) %{NUMBER:[elb][request_processing_time]:float} %{NUMBER:[elb][backend_processing_time]:float} %{NUMBER:[elb][response_processing_time]:float} (?:-|%{INT:[elb][elb_status_code]:int}) (?:-|%{INT:[elb][backend_status_code]:int}) %{INT:[elb][received_bytes]:int} %{INT:[elb][sent_bytes]:int} %{ELB_REQUEST} \"(?:-|%{DATA:[elb][user_agent]})\"( (?:-|%{NOTSPACE:[elb][ssl_cipher]}) (?:-|%{NOTSPACE:[elb][ssl_protocol]}))?$"
+                }
+                add_field => {
+                    "[log_info][format]" => "aws_elb"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "aws_elb" ]
+            }
+
+            date {
+                match => [ "log_timestamp_raw", "ISO8601" ]
+                target => "@timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+
+        }
+
+
+        if "mysql_error" in [log_info][formats] and "log_parser_success" not in [tags] {
+            grok {
+                pattern_definitions => {
+                    MYSQL_DATE => "(?:\d\d)%{MONTHNUM2}%{MONTHDAY} ( )?%{TIME}"
+                    MYSQL_LOGLEVEL => "(?:Note|Warning|Error)"
+                }
+                match => {
+                    log => "^%{MYSQL_DATE:log_timestamp_raw} \[%{MYSQL_LOGLEVEL:log_level}\] %{GREEDYDATA:log_message}$"
+                }
+                add_field => {
+                    "[log_info][format]" => "mysql_error"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "mysql_error" ]
+            }
+            if [log_info][source] == "aws-rds" {
+                grok {
+                    match => {
+                        "source" => "^/mnt/control-data/aws-logs/rds/logs/%{YEAR}-%{MONTHNUM}-%{MONTHDAY}/%{DATA:[rds][instance_id]/"
+                    }
+                }
+            }
+            date {
+                match => [ "log_timestamp_raw", "yyMMdd HH:mm:ss" ]
+                target => "@timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+
+        }
+
+        if "kubernetes-event" in [log_info][formats] and "kubernetes-event-logger" in [log_info][formats] and "log_parser_success" not in [tags] {
+            grok {
+                match => { "log" => "^[^{]*%{DATA:event_json}[^}]*$" }
+                tag_on_failure => [ "log_parser_failure", "kubernetes_event_parser_error" ]
+            }
+
+            json {
+                source => "event_json"
+                target => "parsed_json"
+                add_field => {
+                  "kubernetes_event" => "%{[parsed_json][object]}"
+                }
+                remove_field => ["event_json", "parsed_json"]
+                tag_on_failure => [ "log_parser_failure", "json_event_parser_failure", "kubernetes_event_parser_error" ]
+            }
+
+            json {
+                source => "kubernetes_event"
+                target => "kubernetes_event"
+                add_field => {
+                  "event_timestamp" => "%{[kubernetes_event][lastTimestamp]}"
+                }
+                add_tag => [ "log_parser_success" ]
+                tag_on_failure => [ "log_parser_failure", "json_event_parser_failure", "kubernetes_event_parser_error" ]
+            }
+
+            date {
+                match => [ "event_timestamp", "ISO8601" ]
+                target => "@timestamp"
+                remove_field => ["event_timestamp"]
+                tag_on_failure => [ "date_parser_failure", "kubernetes_event_parser_error" ]
+            }
+        }
+
+        if "kubernetes-event" in [log_info][formats] and "heapster-eventer" in [log_info][formats] and "log_parser_success" not in [tags] {
+
+            grok {
+                pattern_definitions => {
+                    EVENT_DATE => "%{YEAR}-%{MONTHNUM}-%{MONTHDAY}\s%{HOUR}:?%{MINUTE}:?%{SECOND}\s[+-][0-9]{1,4}\s%{TZ}"
+                }
+                match => {
+                    log => "^%{DATA}%{EVENT_DATE:log_timestamp_raw}%{GREEDYDATA:log_message}$"
+                }
+                add_tag => [ "log_parser_success" ]
+                remove_tag => [ "log_parser_failure", "log_parser_skipped" ]
+                tag_on_failure => [ "log_parser_failure", "heapster_eventer_error" ]
+            }
+
+            date {
+                match => [ "log_timestamp_raw", "YYYY-MM-dd HH:mm:ss Z z" ]
+                target => "@timestamp"
+                remove_field => [ "log_timestamp_raw" ]
+                tag_on_failure => [ "date_parser_failure" ]
+            }
+
+        }
+
+        # Append the namespace (if available) that the event came from to index_prefix
+        # Give precedence to the involvedObject.namespace since metadata.namespace
+        # may sometimes just give a vague 'kube-system' namespace that may be unhelpful
+        # when kube events from multiple kube clusters are feeding into same ELK stack
+        if [index_prefix] {
+
+            if [kubernetes_event][involvedObject][namespace] and [kubernetes_event][involvedObject][namespace] != "" {
+                mutate {
+                    replace => {
+                        "index_prefix" => "%{[index_prefix]}-%{[kubernetes_event][involvedObject][namespace]}"
+                    }
+                }
+            } else if [kubernetes_event][metadata][namespace] and [kubernetes_event][metadata][namespace] != "" {
+                mutate {
+                    replace => {
+                        "index_prefix" => "%{[index_prefix]}-%{[kubernetes_event][metadata][namespace]}"
+                    }
+                }
+            }
+
+        }
+
+        # Give precedence to docker timestamp since it is most consistent across containers.
+        # But if Kubernetes Events, we don't care about Docker time, we care about the time Kubernetes
+        # recorded the event
+        if [log_info][source] == "docker" and "kubernetes-event" not in [log_info][formats] {
+            date {
+                match => [ "time", "ISO8601" ]
+                remove_field => [ "time" ]
+                tag_on_failure => [ "date_timestamp_failure" ]
+            }
+        }
+
+        # Parse source file path and extract kubernetes specific information.
+        if [log_info][origin] == "kubernetes" {
+            grok {
+                pattern_definitions => {
+                    KUBE_NAME => "[a-z]([a-zA-Z0-9-])*"
+                    KUBE_ID => "[0-91-f]+"
+                }
+                match => {
+                    "source" => "^/(.+/)?+%{KUBE_NAME:[kube][pod]}_%{KUBE_NAME:[kube][namespace]}_%{KUBE_NAME:[docker][container]}-%{KUBE_ID:[docker][container_id]}.log$"
+                }
+                tag_on_failure => [ "log_parser_failure", "source_field" ]
+            }
+        }
+    }

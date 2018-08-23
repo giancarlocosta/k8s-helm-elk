@@ -1,0 +1,14 @@
+# (Required) string array of namespaces. Namespaces used in filebeat prospectors configs
+# to set index used in ELK and paths of logs files to collect logs from.
+# Useful to define multiple namespaces here if you have deployments in the
+# same kubernetes cluster but separated by namespaces.
+namespaces:
+# (Required) string array of formats to use in filebeat prospectors config's fields.info.formats
+formats:
+# (Required) string array of service whose pods logs should be grabbed by this prospector.
+# These values are used in the filebeat prospectors config's 'paths' to specify
+# where the logs can be found
+services:
+# (Optional) The index_prefix to use in the prospector. Default is to use the current
+# namespace from 'namespaces' value.
+index_prefix:

@@ -1,0 +1,17 @@
+kind: StorageClass
+apiVersion: storage.k8s.io/v1beta1
+metadata:
+  name: {{ template "es.fullname" . }}
+  labels:
+    component: elasticsearch
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp2
+  encrypted: "true"
+  # Shouldn't have to specify zones here.
+  # Make sure there is a data node in each AZ that a master is running
+  # and you won't need this param. The only reason this should be here
+  # is if you have less data nodes than available AZs
+  # and a bug in Kubernetes is trying to put the pvc in the zone where
+  # there is not a data node, so the es StatefulSet pod can't use that pvc
+  # zones: "us-west-2a,us-west-2b,us-west-2c"

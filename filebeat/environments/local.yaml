@@ -1,0 +1,105 @@
+# helm2.9.0 install . --name=filebeat --kube-context=docker-for-desktop --namespace=monitor --tiller-namespace=monitor --values=environments/local.yaml
+# helm2.9.0 delete --purge filebeat --kube-context=docker-for-desktop --tiller-namespace=monitor
+vpcId: "local-cluster"
+
+image: "docker.elastic.co/beats/filebeat:6.3.1"
+
+filebeatVersionGte6: true
+
+rbac:
+  enabled: true
+
+ssl:
+  enabled: false
+
+logstash:
+  host: "logstash-local:5044"
+
+config:
+  filebeat.yml: |-
+    # store registry on host so it doesn't get lost when pods are stopped
+    filebeat.registry_file: /var/tmp/filebeat/filebeat_registry
+    filebeat.config.inputs:
+      enabled: true
+      path: /usr/share/filebeat/inputs/*.yml
+    processors:
+      - drop_event:
+          when:
+            regexp:
+              log: '^\s*$'
+    output.logstash:
+      hosts: ["logstash-local:5044"]
+    logging:
+      level: "info"
+      to_files: false
+      to_syslog: true
+
+prospectors:
+  common:
+    enabled: true
+  custom:
+    enabled: false
+  templates:
+    enabled: true
+    ############################################################################
+    # ELK COMPONENT PROSPECTORS
+    ############################################################################
+    elk:
+      - namespaces:
+          - monitor
+
+    ############################################################################
+    # WINSTON PROSPECTORS
+    ############################################################################
+    winston:
+      - namespaces:
+          - test1
+          - test2
+        formats:
+          - winston
+        services:
+          - winston-service1
+          - winston-service2
+          - winston-service3
+
+      - namespaces:
+          - test3
+          - test4
+        formats:
+          - winston
+        services:
+          - winston-service1
+          - winston-service2
+          - winston-service3
+
+    ############################################################################
+    # CASSANDRA PROSPECTORS
+    ############################################################################
+    cassandra:
+      - namespaces:
+          - test1
+        formats:
+          - cassandra_provisioner
+        services:
+          - cassandra
+          - cassandra_provisioner
+    ############################################################################
+    # DEFAULT HTTP BACKEND PROSPECTORS
+    ############################################################################
+    defaultHttpBackend:
+      - namespaces:
+          - test2
+          - test1
+        formats:
+          - default-http-backend
+    ############################################################################
+    # NGINX IC PROSPECTORS
+    ############################################################################
+    nginxIc:
+      - namespaces:
+          - test2
+          - test1
+        formats:
+          - nginx_ic_access
+          - nginx_error
+          - kubernetes

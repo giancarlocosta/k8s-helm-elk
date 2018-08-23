@@ -1,0 +1,76 @@
+## REQUIRED!!
+## Set to name of the vpc this filebeat deployment is going in
+## Example: "prod-elk", "prod-vpc", "qa-vpc", etc.
+##
+vpcId: ""
+
+## Filebeat image
+##
+image: "docker.elastic.co/beats/filebeat:5.5.2"
+
+# IMPORTANT: Set this to true if image version >= filebeat version 6
+filebeatVersionGte6: false
+
+rbac:
+  enabled: false
+
+ssl:
+  enabled: true
+logstash:
+  host: "logstash.yournetwork.net:5044"
+
+config:
+  filebeat.yml: |-
+    filebeat.config_dir: 'prospectors/'
+    output.logstash:
+      hosts: ["logstash.yournetwork.net:5044"]
+      ssl.certificate_authorities: ['/usr/share/filebeat/ssl/logstash.yournetwork.net.crt']
+      ssl.certificate: '/usr/share/filebeat/ssl/filebeat-daemon.crt'
+      ssl.key: '/usr/share/filebeat/ssl/filebeat-daemon.pkcs8.key'
+    processors:
+      - drop_event:
+          when:
+            regexp:
+              log: '^\s*$'
+    logging:
+      level: "info"
+      to_files: false
+      to_syslog: true
+
+## Filebeat prospector config options. Use these values to succinctly specify
+## which prospectors should be used on which services and in which namespaces
+##
+prospectors:
+  ## Adds .yml propectors defined in propectors/common to
+  ## templates/configmap-prospectors.yaml if enabled
+  common:
+    enabled: true
+  ## Adds .yml propectors defined in propectors/custom to
+  ## templates/configmap-prospectors.yaml if enabled. Make sure you add .yml (NOT .yaml)
+  ## files to propectors/custom if this is enabled, or templating will fail!
+  custom:
+    enabled: false
+  ## Adds prospectors templated in templates/configmap-prospectors.yaml
+  ## if enabled
+  templates:
+    enabled: true
+    # winston:
+    #   <prospector-value-type>
+    # redis:
+    #   <prospector-value-type>
+    # mongo:
+    #   <prospector-value-type>
+    # rabbit:
+    #   <prospector-value-type>
+    # cassandra:
+    #   <prospector-value-type>
+    # admin:
+    #   <prospector-value-type>
+    # author:
+    #   <prospector-value-type>
+    # defaultHttpBackend:
+    #   <prospector-value-type>
+    # nginx:
+    #   <prospector-value-type>
+    # nginxIc:
+    #   <prospector-value-type>

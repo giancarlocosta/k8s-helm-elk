@@ -1,0 +1,137 @@
+# delete pvc storage-elasticsearch-data-0 storage-elasticsearch-data-1 storage-elasticsearch-data-2 storage-elasticsearch-master-0 storage-elasticsearch-master-1 storage-elasticsearch-master-2
+# awsprod; elasticsearch/post-install/post-es-index-mappings.sh elasticsearch.prod-elk.yournetwork.net
+image:
+  es:
+    repository: quay.io/pires/docker-elasticsearch-kubernetes
+    tag: 6.3.1
+    pullPolicy: Always
+  init:
+    repository: busybox
+    tag: latest
+    pullPolicy: IfNotPresent
+  curator:
+    repository: bobrik/curator
+    tag: latest
+    pullPolicy: IfNotPresent
+
+common:
+  env:
+    CLUSTER_NAME: "prod-elk"
+
+service:
+  httpPort: 80
+  transportPort: 9300
+
+ingress:
+  enabled: true
+  hosts:
+    - elasticsearch.prod-elk.yournetwork.net
+  annotations:
+    kubernetes.io/ingress.class: "elk-internal-ingress"
+    ingress.kubernetes.io/service-upstream: "true"
+    ingress.kubernetes.io/force-ssl-redirect: "true"
+
+# Elasticsearch curator cleans up old indices to keep disk usage in check
+curator:
+  enabled: true
+  # Run the curator every 10 minutes
+  schedule: "*/10 * * * *"
+  # Delete any indices older than 3 days
+  age:
+    timestring: "%Y.%m.%d"
+    unit: "days"
+    unit_count: 3
+
+data:
+
+  stateful:
+    enabled: true
+    size: 500Gi
+
+  # This count will depend on your data and computation needs.
+  replicas: 3
+  tolerations:
+    - key: role
+      operator: Equal
+      value: elk-elasticsearch-data-node
+      effect: NoSchedule
+  podAntiAffinity: "required"
+  customAffinity:
+    # These pods can be scheduled ONLY on nodes with the following labels
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: role
+            operator: In
+            values:
+            - elk-elasticsearch-data-node
+
+  # The amount of RAM allocated to the JVM heap. This should be set to less than
+  # or equal to data.resources.requests.memory, or you may see
+  # OutOfMemoryErrors on startup.
+  heapMemory: 4g
+
+  resources:
+    requests:
+      cpu: 1.5
+      memory: 7Gi
+    limits:
+      cpu: 2
+      memory: 7Gi
+
+  env:
+    NODE_DATA: "true"
+    NODE_MASTER: "false"
+    NODE_INGEST: "false"
+    HTTP_ENABLE: "true"
+    NETWORK_HOST: "0.0.0.0"
+
+master:
+
+  stateful:
+    enabled: true
+    size: 20Gi
+
+  # Master replica count should be (#clients / 2) + 1, and generally at least 3.
+  replicas: 3
+  tolerations:
+    - key: role
+      operator: Equal
+      value: elk-elasticsearch-master-node
+      effect: NoSchedule
+  podAntiAffinity: "required"
+  customAffinity:
+    # These pods can be scheduled ONLY on nodes with the following labels
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: role
+            operator: In
+            values:
+            - elk-elasticsearch-master-node
+
+  heapMemory: 1g
+
+  resources:
+    requests:
+      cpu: 0.5
+      memory: 1.5Gi
+    limits:
+      cpu: 1
+      memory: 1.5Gi
+
+  env:
+    NODE_DATA: "false"
+    NODE_MASTER: "true"
+    NODE_INGEST: "false"
+    HTTP_ENABLE: "false"
+    # The default value for this environment variable is 2, meaning a cluster
+    # will need a minimum of 2 master nodes to operate. If you have 3 masters
+    # and one dies, the cluster still works.
+    # REMEMBER TO UPDATE THIS WHEN/IF YOU SCALE MASTERS!!
+    NUMBER_OF_MASTERS: "2"
+
+client:
+  enabled: false

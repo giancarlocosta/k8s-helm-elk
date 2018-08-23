@@ -1,0 +1,9 @@
+kind: ConfigMap
+metadata:
+  name: filebeat-required-helm-values
+################################################################################
+#                           REQUIRED HELM VALUES
+# Use this file to list the required values that must provided to this chart
+#
+################################################################################
+vpcId: {{required "A valid .Values.vpcId entry required!" .Values.vpcId }}

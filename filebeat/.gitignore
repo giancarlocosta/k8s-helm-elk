@@ -1,0 +1,7 @@
+*release-preview*
+s3/
+**/.DS_Store
+**/__pycache__
+deployment-secrets/
+values/
+tmp/

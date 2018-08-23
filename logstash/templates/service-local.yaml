@@ -1,0 +1,18 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ template "logstash.fullname" . }}-local
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ template "logstash.name" . }}
+    release: {{ .Release.Name }}
+  ports:
+  - name: beats
+    protocol: TCP
+    port: 5044
+    targetPort: 5044
+  - name: monitor
+    protocol: TCP
+    port: 9600
+    targetPort: 9600

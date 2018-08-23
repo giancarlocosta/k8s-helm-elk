@@ -1,0 +1,181 @@
+# Read: https://www.elastic.co/guide/en/logstash/current/persistent-queues.html
+apiVersion: apps/v1beta1
+kind: {{ if .Values.persistence.enabled }}StatefulSet{{ else }}Deployment{{ end }}
+metadata:
+  name: {{ template "logstash.fullname" . }}
+  labels:
+    app: {{ template "logstash.name" . }}
+    release: {{ .Release.Name }}
+spec:
+  {{- if .Values.persistence.enabled }}
+  serviceName: {{ template "logstash.fullname" . }}
+  {{- end }}
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "logstash.name" . }}
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ template "logstash.name" . }}
+        release: {{ .Release.Name }}
+      annotations:
+        checksum/patterns: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9198"
+      {{- if .Values.podAnnotations }}
+        ## Custom pod annotations
+        {{- range $key, $value := .Values.podAnnotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+      {{- end }}
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+    {{- if .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.nodeSelector | indent 8 }}
+    {{- end }}
+    {{- if .Values.affinity }}
+      affinity:
+{{ toYaml .Values.affinity | indent 8 }}
+    {{- else }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                    - {{ template "logstash.name" . }}
+              topologyKey: "kubernetes.io/hostname"
+    {{- end }}
+    {{- if .Values.customAffinity }}
+{{ toYaml .Values.customAffinity | indent 8 }}
+    {{- end }}
+    {{- if .Values.tolerations }}
+      tolerations:
+{{ toYaml .Values.tolerations | indent 8 }}
+    {{- end }}
+      containers:
+
+        ## logstash
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: monitor
+              containerPort: 9600
+              protocol: TCP
+            - name: beats
+              containerPort: 5044
+          livenessProbe:
+            httpGet:
+              path: /
+              port: monitor
+            initialDelaySeconds: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: monitor
+            initialDelaySeconds: 60
+          env:
+            ## Elasticsearch output
+            - name: ELASTICSEARCH_HOST
+              value: {{ .Values.elasticsearch.host | quote }}
+            - name: ELASTICSEARCH_PORT
+              value: {{ .Values.elasticsearch.port | quote }}
+            ## Additional env vars
+            {{- range $key, $value := .Values.env }}
+            - name: "{{ $key }}"
+              value: "{{ $value }}"
+            {{- end }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/logstash/data
+            - name: config-volume
+              mountPath: /usr/share/logstash/config
+            - name: logstash-pipeline-volume
+              mountPath: /usr/share/logstash/pipeline
+
+        ## logstash-exporter
+        - name: {{ .Chart.Name }}-exporter
+          image: "{{ .Values.exporter.logstash.image.repository }}:{{ .Values.exporter.logstash.image.tag }}"
+          imagePullPolicy: {{ .Values.exporter.logstash.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          ## Delay start of logstash-exporter to give logstash more time to come online.
+          args:
+            - >-
+              sleep 60;
+              exec /logstash_exporter
+                --logstash.endpoint=http://localhost:9600
+                --web.listen-address=:9198
+          ports:
+            - name: exporter-http
+              containerPort: 9198
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9198
+            periodSeconds: 15
+            timeoutSeconds: 60
+            failureThreshold: 8
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9198
+            periodSeconds: 15
+            timeoutSeconds: 60
+            failureThreshold: 8
+            successThreshold: 1
+          env:
+            {{- range $key, $value := .Values.exporter.logstash.env }}
+            - name: "{{ $key }}"
+              value: "{{ $value }}"
+            {{- end }}
+
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ template "logstash.fullname" . }}-configmap
+            items:
+              - key: logstash.yml
+                path: logstash.yml
+              - key: jvm.options
+                path: jvm.options
+        - name: logstash-pipeline-volume
+          configMap:
+            name: {{ template "logstash.fullname" . }}-configmap
+            items:
+              - key: logstash.conf
+                path: logstash.conf
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir:
+            medium: ""
+        {{- end }}
+
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      annotations:
+        volume.beta.kubernetes.io/storage-class: {{ template "logstash.fullname" . }}
+    spec:
+      storageClassName: {{ template "logstash.fullname" . }}
+      accessModes:
+        - {{ .Values.persistence.accessMode | quote }}
+      resources:
+        requests:
+          storage: {{ .Values.persistence.size }}
+  {{- end }}

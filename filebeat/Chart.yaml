@@ -1,0 +1,8 @@
+name: filebeat
+version: 0.0.1
+appVersion: 0.0.1
+engine: gotpl
+description: A Chart to deploy filebeat pods that collect logs from a specified namespace and forwards the logs to a specified Logstash instance
+keywords:
+  - filebeat
+  - elk

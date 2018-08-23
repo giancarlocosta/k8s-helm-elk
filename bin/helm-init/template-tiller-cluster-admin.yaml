@@ -1,0 +1,14 @@
+# NOTE: SHOULD ONLY BE USED FOR THE TILLER DEPLOYMENT IN kube-system NAMESPACE.
+# NO OTHER TILLER DEPLOYMENTS SHOULD HAVE cluster-admin clusterrolebinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: tiller-${NAMESPACE}-cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: tiller-${NAMESPACE}
+    namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin

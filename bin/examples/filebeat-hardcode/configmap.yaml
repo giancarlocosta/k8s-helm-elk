@@ -1,0 +1,25 @@
+# https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-configuration-reloading.html#load-input-config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-configmap
+data:
+  filebeat.yml: |
+    # store registry on host so it doesn't get lost when pods are stopped
+    filebeat.registry_file: /var/tmp/filebeat/filebeat_registry
+    filebeat.config.inputs:
+      enabled: true
+      path: /usr/share/filebeat/inputs/*.yml
+    processors:
+      - drop_event:
+          when:
+            regexp:
+              log: '^\s*$'
+    output.logstash:
+      enabled: true
+      hosts: ["logstash-local:5044"]
+      #hosts: ["logstash.prod-elk.yournetwork.net:5044"]
+      ssl.enabled: false
+    logging:
+      level: "info"
+      # level: "debug"

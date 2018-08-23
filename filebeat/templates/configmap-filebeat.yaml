@@ -1,0 +1,13 @@
+# Mount this to filebeat pods since mounted files in the pods will update.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-conf
+  labels:
+    app: filebeat-conf
+    {{- include "release_labels" . | indent 4 }}
+data:
+{{- range $key, $value := .Values.config }}
+  {{ $key }}: |-
+{{ $value | indent 4 }}
+{{- end }}
