@@ -6,7 +6,7 @@ filebeat.prospectors:
 - input_type: log
 {{- end }}
   paths:
-    - '/var/log/containers/consul-agent-*_ops_*.log'
+    - '/var/log/containers/consul-agent-*_monitor_*.log'
     - '/var/log/containers/grafana*.log'
     - '/var/log/containers/prometheus*.log'
   symlinks: true
