@@ -2,9 +2,9 @@
 
 HELM_VERSION=${HELM_VERSION:-"2.9.0"}
 
-kube_context=${1:-"wtf"}
-kube_namespace=${2:-"wtf"}
-chart=${3:-"wtf"}
+kube_context=${1:-"ephemeral"}
+kube_namespace=${2:-"ephemeral"}
+chart=${3:-"ephemeral"}
 action=${4}
 
 release_name="${NAME:-$chart}"
