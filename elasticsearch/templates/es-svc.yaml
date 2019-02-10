@@ -20,6 +20,3 @@ spec:
     port: {{ .Values.service.transportPort }}
     targetPort: 9300
     protocol: TCP
-  - name: http
-    port: 9200
-    targetPort: 9200
