@@ -592,7 +592,7 @@ data:
         {{- if $prospectorSet.index_prefix }}
         index_prefix: {{ $prospectorSet.index_prefix }}
         {{- else }}
-        index_prefix: "{ $vpcId }}-{{ $namespace }}-elk-logstash"
+        index_prefix: "{{ $vpcId }}-{{ $namespace }}-elk-logstash"
         {{- end }}
         vpc_name: "{{ $vpcId }}"
         info:
